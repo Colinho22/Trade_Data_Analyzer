@@ -42,7 +42,7 @@ To be able to start the dashboard you need to execute the following steps:
 5. upload countrydata_calculated.ttl[^3] to Fuseki as countrydata_calculated[^4]
 6. `run` [app.py](dashboard/app.py)
 <br/>
-Streamlit then deploys the dashboard to `http://localhost:8501` and is ready for exploration.
+Streamlit then deploys the dashboard to http://localhost:8501/ and is ready for exploration.
 
 
 [^1]: check [Apache Jena Fuseki Download here](https://jena.apache.org/download/index.cgi) or download using [`homebrew`](https://formulae.brew.sh/formula/fuseki).
