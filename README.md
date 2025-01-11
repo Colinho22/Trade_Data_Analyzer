@@ -43,7 +43,7 @@ To be able to start the dashboard you need to execute the following steps:
 6. `run` [app.py](dashboard/app.py)
 <br/>
 Streamlit then deploys the dashboard to http://localhost:8501/ and is ready for exploration.
-
+<br/>
 
 [^1]: check [Apache Jena Fuseki Download here](https://jena.apache.org/download/index.cgi) or download using [`homebrew`](https://formulae.brew.sh/formula/fuseki).
 [^2]: check [Fuseki Quickstart](https://jena.apache.org/documentation/fuseki2/fuseki-quick-start.html) or use homebrew via terminal command (macOS) `/opt/homebrew/opt/fuseki/bin/fuseki-server`
