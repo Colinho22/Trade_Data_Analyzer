@@ -12,7 +12,7 @@ This project allows for the analysis of trade data as reported by the United Nat
 ## Requirements
 - Python 3.12
 - packages within [requirements.txt](requirements.txt)
-- locally deployed Apache Jena Fuseki server ([app.py](dashboard/app.py) is quering towards `localhost:3030`)
+- locally deployed Apache Jena Fuseki server ([app.py](dashboard/app.py) is querying towards `localhost:3030`)
 - UN Comtrade data
 <br/>
 <br/>
@@ -24,7 +24,7 @@ This project contains python scripts, a .csv file with some example data from UN
   - app.py <sub>_#streamlit dashboard_</sub>
 - data
   - country_ontology.py <sub>_#ontology for RDF graph_</sub>
-  - countrydata.ttl <sub>_#empty turtle file to strore data from main.py_</sub>
+  - countrydata.ttl <sub>_#empty turtle file to store data from main.py_</sub>
   - main.py <sub>_#script to aggregate data from wikidata and .csv to countrydata.ttl_</sub>
   - plasticstraw.py <sub>_#script to purge countrydata.ttl_</sub>
   - sircalcalot.py <sub>_#script to enhance countrydata.ttl with trade balance calculations_</sub>
@@ -48,4 +48,4 @@ Streamlit then deploys the dashboard to http://localhost:8501/ and is ready for 
 [^1]: check [Apache Jena Fuseki Download here](https://jena.apache.org/download/index.cgi) or download using [`homebrew`](https://formulae.brew.sh/formula/fuseki).
 [^2]: check [Fuseki Quickstart](https://jena.apache.org/documentation/fuseki2/fuseki-quick-start.html) or use homebrew via terminal command (macOS) `/opt/homebrew/opt/fuseki/bin/fuseki-server`
 [^3]: will be generated when executing [sircalcalot.py](data/sircalcalot.py)
-[^4]: [app.py](dashboard/app.py) is quering `http://localhost:3030/countrydata_calculated/query`
+[^4]: [app.py](dashboard/app.py) is querying `http://localhost:3030/countrydata_calculated/query`
