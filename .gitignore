@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+utils/
 lib64/
 parts/
 sdist/
@@ -169,3 +169,5 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+data/countrydata_calculated.ttl
+.DS_Store
