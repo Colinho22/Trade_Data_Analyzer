@@ -175,6 +175,11 @@
     rdfs:range xsd:integer ;
     rdfs:label "Population value"@en .
 
+:unemploymentValue rdf:type owl:DatatypeProperty ;
+    rdfs:domain :SocialMeasurement ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "Unemployment Rate value"@en .
+
 :tradeValue rdf:type owl:DatatypeProperty ;
     rdfs:domain :TradeMeasurement ;
     rdfs:range xsd:decimal ;
@@ -274,6 +279,9 @@
 
 :populationValue rdfs:comment "Total population count"@en ;
     :measurementUnit "People" .
+
+:unemploymentValue rdfs:comment "Unemployment rate as percentage of total labor force"@en ;
+    :measurementUnit "Percentage" .
 
 :tradeValue rdfs:comment "Trade value in current US dollars"@en ;
     :measurementUnit "USD" .

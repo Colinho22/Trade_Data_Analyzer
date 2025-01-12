@@ -1,5 +1,5 @@
 from SPARQLWrapper import SPARQLWrapper, JSON
-from rdflib import Graph, Literal, RDF, URIRef, Namespace, BNode
+from rdflib import Graph, Literal, RDF, URIRef, Namespace
 from rdflib.namespace import RDFS, XSD, OWL, DC
 import time
 from datetime import datetime
@@ -103,18 +103,29 @@ def add_country_data(g, base, country_data):
 
 #add measurement data to graph
 def add_measurement_data(g, base, data, measurement_type, value_property):
+    #define mapping for SPARQL variable names
+    value_mapping = {
+        'gdpValue': 'gdp',
+        'hdiValue': 'hdi',
+        'democracyIndexValue': 'democracyIndex',
+        'populationValue': 'population',
+        'unemploymentValue': 'unemploymentRate'
+    }
+
+    sparql_var = value_mapping.get(value_property, value_property[:-5])
+
     for item in data:
         country_uri = URIRef(f"{base}{item['isoCode']['value']}")
         measurement_uri = URIRef(f"{base}{item['isoCode']['value']}_{measurement_type}_{item['year']['value']}")
 
-        # add measurement node
+        #add measurement node
         g.add((measurement_uri, RDF.type, OWL.NamedIndividual))
         g.add((measurement_uri, RDF.type, base[measurement_type]))
         g.add((measurement_uri, base.year, Literal(int(item['year']['value']), datatype=XSD.integer)))
         g.add((measurement_uri, base[value_property],
-               Literal(float(item[value_property[:-5]]['value']), datatype=XSD.decimal)))
+               Literal(float(item[sparql_var]['value']), datatype=XSD.decimal)))
 
-        # link country to measurement
+        #link country to measurement
         g.add((country_uri, base[f"has{measurement_type}"], measurement_uri))
 
 
@@ -337,6 +348,11 @@ def main():
         print("Fetching Population data...")
         population_data = execute_query(endpoint, queries.get_population_query())
         add_measurement_data(g, base, population_data, "DemographicMeasurement", "populationValue")
+        time.sleep(5)
+
+        print("Fetching Unemployment data...")
+        unemployment_data = execute_query(endpoint, queries.get_unemployment_query())
+        add_measurement_data(g, base, unemployment_data, "SocialMeasurement", "unemploymentValue")
         time.sleep(5)
 
         print("Fetching Organization membership data...")

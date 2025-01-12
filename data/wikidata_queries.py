@@ -97,3 +97,19 @@ class WikidataQueries:
         }
         ORDER BY ?isoCode
         """
+
+#get unemployment data for one/all years available
+    def get_unemployment_query(self):
+        return f"""
+        SELECT DISTINCT ?country ?isoCode ?unemploymentRate ?year
+        WHERE {{
+            ?country wdt:P31 wd:Q6256.
+            ?country wdt:P298 ?isoCode.
+            ?country p:P1198 ?unemploymentStatement.
+            ?unemploymentStatement ps:P1198 ?unemploymentRate;
+                         pq:P585 ?unemploymentDate.
+            BIND(YEAR(?unemploymentDate) as ?year)
+            {self._year_filter}
+        }}
+        ORDER BY ?isoCode ?year
+        """
