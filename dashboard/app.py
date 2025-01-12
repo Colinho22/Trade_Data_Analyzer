@@ -72,6 +72,29 @@ def get_country_options(sparql):
     return []
 
 
+#get most recent year for immediate display in trade data overview tab
+def get_available_years(sparql, iso_code):
+    year_query = f"""
+    PREFIX : <http://example.org/country-data#>
+    SELECT DISTINCT ?year
+    WHERE {{
+        ?country a :Country ;
+                :isoCode "{iso_code}" ;
+                :hasTradeAggregate ?measurement .
+        ?measurement :year ?year .
+    }}
+    ORDER BY DESC(?year)
+    """
+
+    years = execute_query(sparql, year_query)
+    if years:
+        available_years = sorted([int(float(year['year']['value']))
+                                for year in years], reverse=True)
+        most_recent_year = available_years[0]
+        return available_years, most_recent_year
+    return [], None
+
+
 #get trade data for a specific country and year
 def get_trade_data(sparql, iso_code, year):
     trade_query = f"""
@@ -125,9 +148,8 @@ def show_country_selector(sparql):
     return None, None
 
 
-#show trade overview
+#get current trade data for selected country
 def get_country_trade_data(sparql, iso_code, year):
-    #get current and previous trade data for selected country
     trade_query = f"""
     PREFIX : <http://example.org/country-data#>
     SELECT ?year ?totalBalance ?totalExport ?totalImport 
@@ -151,8 +173,25 @@ def get_country_trade_data(sparql, iso_code, year):
     return execute_query(sparql, trade_query)
 
 
-#display trade overview for selected country and year
-def show_trade_overview(sparql, iso_code, country_name, selected_year):
+#display trade overview for selected country and year (show latest first)
+def show_trade_overview(sparql, iso_code, country_name, selected_year=None):
+    available_years, most_recent_year = get_available_years(sparql, iso_code)
+
+    if not available_years:
+        st.warning(f"No trade data available for {country_name}")
+        return
+
+    #if no year is selected, use the most recent year
+    if selected_year is None:
+        selected_year = most_recent_year
+
+    #show year selector with most recent year as default
+    selected_year = st.selectbox(
+        "Select Year",
+        available_years,
+        index=available_years.index(selected_year),
+        key="year_selector"
+    )
 
     #get data for current and previous year
     trade_results = get_country_trade_data(sparql, iso_code, selected_year)
@@ -166,8 +205,8 @@ def show_trade_overview(sparql, iso_code, country_name, selected_year):
         prev_data = trade_results[0]  # Previous year
         current_data = trade_results[1]  # Current year
     else:
-        st.warning(f"Incomplete data available for {country_name}")
-        return
+        current_data = trade_results[0]  # Only current year available
+        prev_data = None
 
     try:
         #create columns for total, export and import
@@ -177,7 +216,6 @@ def show_trade_overview(sparql, iso_code, country_name, selected_year):
         with col1:
             st.subheader("Trade Total")
             balance = float(current_data['totalBalance']['value'])
-            prev_balance = float(prev_data['totalBalance']['value'])
             balance_color = "green" if balance >= 0 else "red"
 
             st.markdown(f"**Trade Balance:**")
@@ -186,15 +224,19 @@ def show_trade_overview(sparql, iso_code, country_name, selected_year):
                 unsafe_allow_html=True
             )
 
-            #calculate year-over-year changes
-            export_change = calculate_yoy_change(
-                float(current_data['totalExport']['value']),
-                float(prev_data['totalExport']['value'])
-            )
-            import_change = calculate_yoy_change(
-                float(current_data['totalImport']['value']),
-                float(prev_data['totalImport']['value'])
-            )
+            #calculate year-over-year changes if previous data exists
+            if prev_data:
+                export_change = calculate_yoy_change(
+                    float(current_data['totalExport']['value']),
+                    float(prev_data['totalExport']['value'])
+                )
+                import_change = calculate_yoy_change(
+                    float(current_data['totalImport']['value']),
+                    float(prev_data['totalImport']['value'])
+                )
+            else:
+                export_change = None
+                import_change = None
 
             #display metrics with YoY changes
             st.metric(
@@ -212,7 +254,6 @@ def show_trade_overview(sparql, iso_code, country_name, selected_year):
         with col2:
             st.subheader("Goods Trade")
             goods_balance = float(current_data['goodsExport']['value']) - float(current_data['goodsImport']['value'])
-            prev_goods_balance = float(prev_data['goodsExport']['value']) - float(prev_data['goodsImport']['value'])
             goods_color = "green" if goods_balance >= 0 else "red"
 
             st.markdown(f"**Goods Balance:**")
@@ -221,15 +262,19 @@ def show_trade_overview(sparql, iso_code, country_name, selected_year):
                 unsafe_allow_html=True
             )
 
-            #calculate changes for goods trade
-            goods_export_change = calculate_yoy_change(
-                float(current_data['goodsExport']['value']),
-                float(prev_data['goodsExport']['value'])
-            )
-            goods_import_change = calculate_yoy_change(
-                float(current_data['goodsImport']['value']),
-                float(prev_data['goodsImport']['value'])
-            )
+            #calculate changes for goods trade if previous data exists
+            if prev_data:
+                goods_export_change = calculate_yoy_change(
+                    float(current_data['goodsExport']['value']),
+                    float(prev_data['goodsExport']['value'])
+                )
+                goods_import_change = calculate_yoy_change(
+                    float(current_data['goodsImport']['value']),
+                    float(prev_data['goodsImport']['value'])
+                )
+            else:
+                goods_export_change = None
+                goods_import_change = None
 
             #display metrics with YoY changes
             st.metric(
@@ -248,8 +293,6 @@ def show_trade_overview(sparql, iso_code, country_name, selected_year):
             st.subheader("Services Trade")
             services_balance = float(current_data['servicesExport']['value']) - float(
                 current_data['servicesImport']['value'])
-            prev_services_balance = float(prev_data['servicesExport']['value']) - float(
-                prev_data['servicesImport']['value'])
             services_color = "green" if services_balance >= 0 else "red"
 
             st.markdown(f"**Services Balance:**")
@@ -258,15 +301,19 @@ def show_trade_overview(sparql, iso_code, country_name, selected_year):
                 unsafe_allow_html=True
             )
 
-            #calculate changes for services trade
-            services_export_change = calculate_yoy_change(
-                float(current_data['servicesExport']['value']),
-                float(prev_data['servicesExport']['value'])
-            )
-            services_import_change = calculate_yoy_change(
-                float(current_data['servicesImport']['value']),
-                float(prev_data['servicesImport']['value'])
-            )
+            #calculate changes for services trade if previous data exists
+            if prev_data:
+                services_export_change = calculate_yoy_change(
+                    float(current_data['servicesExport']['value']),
+                    float(prev_data['servicesExport']['value'])
+                )
+                services_import_change = calculate_yoy_change(
+                    float(current_data['servicesImport']['value']),
+                    float(prev_data['servicesImport']['value'])
+                )
+            else:
+                services_export_change = None
+                services_import_change = None
 
             #display metrics with YoY changes
             st.metric(
@@ -297,6 +344,9 @@ def calculate_yoy_change(current_value, previous_value):
 
 #display trade balance trends for selected country
 def display_trade_trends(sparql, iso_code, country_name, selected_year):
+    st.divider()
+
+    #query to get all years data
     trend_query = f"""
     PREFIX : <http://example.org/country-data#>
     SELECT ?year ?totalBalance ?totalExport ?totalImport
@@ -308,13 +358,13 @@ def display_trade_trends(sparql, iso_code, country_name, selected_year):
                      :totalTradeBalance ?totalBalance ;
                      :totalExportValue ?totalExport ;
                      :totalImportValue ?totalImport .
-        FILTER(?year <= {selected_year} && ?year >= {selected_year - 4})
     }}
     ORDER BY ?year
     """
 
     trend_results = execute_query(sparql, trend_query)
     if trend_results:
+        #create DataFrame with all trade data
         df = pd.DataFrame([
             {
                 'Year': int(float(r['year']['value'])),
@@ -324,12 +374,87 @@ def display_trade_trends(sparql, iso_code, country_name, selected_year):
             } for r in trend_results
         ])
 
+        #add data set insights
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            year_count = len(df)
+            year_range = f"{df['Year'].min()} - {df['Year'].max()}"
+            st.markdown("### Available Trade Data")
+            st.write(f"Number of years: {year_count}")
+            st.write(f"Time period: {year_range}")
+
+        with col2:
+            st.markdown("### Trade Balance Insight")
+            avg_balance = df['Trade Balance'].mean()
+            balance_color = "green" if avg_balance >= 0 else "red"
+            st.markdown(
+                f"**Average Trade Balance:** <span style='color:{balance_color}'>{format_number(avg_balance)} USD</span>",
+                unsafe_allow_html=True)
+
+        with col3:
+            max_year = df.loc[df['Trade Balance'].idxmax(), 'Year']
+            min_year = df.loc[df['Trade Balance'].idxmin(), 'Year']
+            st.markdown("### Best/Worst Years")
+            st.write(f"Best trade balance: {max_year}")
+            st.write(f"Worst trade balance: {min_year}")
+
+        st.divider()
+
+        #create bar chart comparing exports and imports
         st.subheader("Trade Trends")
-        fig = px.line(df,
-                      x='Year',
-                      y=['Trade Balance', 'Exports', 'Imports'],
-                      title=f'Trade Trends for {country_name} (Last 5 Years)')
-        st.plotly_chart(fig, use_container_width=True)
+
+        #reshape data for bar chart
+        plot_df = pd.melt(df,
+                          id_vars=['Year'],
+                          value_vars=['Exports', 'Imports'],
+                          var_name='Type',
+                          value_name='Value')
+
+        #create bar chart for imports and exports
+        fig_trade = px.bar(plot_df,
+                           x='Year',
+                           y='Value',
+                           color='Type',
+                           barmode='group',
+                           title=f'Trade Trends for {country_name}')
+
+        #update layout for trade chart
+        fig_trade.update_layout(
+            yaxis_title='Value (USD)',
+            xaxis_title='Year',
+            hovermode='x unified',
+            legend_title='',
+            showlegend=True
+        )
+
+        #show trade chart
+        st.plotly_chart(fig_trade, use_container_width=True)
+
+        #add separator between charts
+        st.divider()
+
+        #create line chart for trade balance
+        fig_balance = px.line(df,
+                              x='Year',
+                              y='Trade Balance',
+                              title=f'Trade Balance Development for {country_name}')
+
+        #update layout for balance chart
+        fig_balance.update_layout(
+            yaxis_title='Trade Balance (USD)',
+            xaxis_title='Year',
+            hovermode='x unified'
+        )
+
+        #add zero line reference
+        fig_balance.add_hline(y=0,
+                              line_dash="dot",
+                              line_color="gray",
+                              annotation_text="Balance = 0")
+
+        #show balance chart
+        st.plotly_chart(fig_balance, use_container_width=True)
 
 
 #show trade partners overview
@@ -735,28 +860,10 @@ def main():
 
         with tab1:
             st.header("Trade Overview")
-
             if st.session_state.selected_iso and st.session_state.selected_country:
-                year_query = """
-                PREFIX : <http://example.org/country-data#>
-                SELECT DISTINCT ?year
-                WHERE {
-                    ?country :hasTradeAggregate ?measurement .
-                    ?measurement :year ?year .
-                }
-                ORDER BY DESC(?year)
-                """
-
-                years = execute_query(sparql, year_query)
-                if years:
-                    years = sorted([int(float(year['year']['value'])) for year in years], reverse=True)
-                    selected_year = st.selectbox("Select Year", years, key="year_selector")
-                    show_trade_overview(sparql,
-                                        st.session_state.selected_iso,
-                                        st.session_state.selected_country,
-                                        selected_year)
-            else:
-                st.info("Please select a country from the sidebar to view trade overview.")
+                show_trade_overview(sparql,
+                                    st.session_state.selected_iso,
+                                    st.session_state.selected_country)
 
         with tab2:
             show_trade_partners(sparql, selected_iso, selected_country)
