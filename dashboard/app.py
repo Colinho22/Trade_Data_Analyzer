@@ -548,60 +548,168 @@ def show_trade_partners(sparql, iso_code, country_name):
         st.write("Debug: Error in data processing", e)
 
 
-#show sociodemographic indicators
-def show_sociodemographic(sparql, iso_code, country_name):
-    st.header("Sociodemographic Indicators")
-
-    #query for population and HDI data
-    indicators_query = f"""
+#key data for sociodemographic
+def get_indicator_data(sparql, iso_code, measurement_type, value_property):
+    query = f"""
     PREFIX : <http://example.org/country-data#>
-    SELECT ?year ?population ?hdi
+    SELECT ?year ?value
     WHERE {{
         ?country a :Country ;
-                :isoCode "{iso_code}" .
-        ?country :hasDemographicMeasurement ?dm .
-        ?dm :year ?year ;
-            :populationValue ?population .
-        ?country :hasSocialMeasurement ?sm .
-        ?sm :year ?year ;
-            :hdiValue ?hdi .
+                :isoCode "{iso_code}" ;
+                :{measurement_type} ?measurement .
+        ?measurement :year ?year ;
+                     :{value_property} ?value .
     }}
     ORDER BY ?year
     """
 
-    results = execute_query(sparql, indicators_query)
+    results = execute_query(sparql, query)
     if results:
-        df = pd.DataFrame([
+        return pd.DataFrame([
             {
                 'Year': int(float(r['year']['value'])),
-                'Population': float(r['population']['value']),
-                'HDI': float(r['hdi']['value'])
+                'Value': float(r['value']['value'])
             } for r in results
         ])
+    return pd.DataFrame()
 
-        #latest values as key numbers
-        latest = df.iloc[-1]
-        col1, col2 = st.columns(2)
-        col1.metric("Latest Population Count",
-                  format_number(latest['Population']),
-                  f"{((df.iloc[-1]['Population'] - df.iloc[-2]['Population']) / df.iloc[-2]['Population'] * 100):.2f}%")
-        col2.metric("Latest HDI",
-                  f"{latest['HDI']:.3f}",
-                  f"{((df.iloc[-1]['HDI'] - df.iloc[-2]['HDI']) / df.iloc[-2]['HDI'] * 100):.2f}%")
 
-        #Population trend
-        fig_pop = px.line(df,
-                          x='Year',
-                          y='Population',
-                          title=f'Population Trend - {country_name}')
-        st.plotly_chart(fig_pop)
+#calculate change (YoY) for key numbers of sociodemographics
+def calculate_change(current, previous):
+    if previous == 0:
+        return 0, True
 
-        #HDI trend
-        fig_hdi = px.line(df,
-                          x='Year',
-                          y='HDI',
-                          title=f'Human Development Index - {country_name}')
-        st.plotly_chart(fig_hdi)
+    change = ((current - previous) / abs(previous)) * 100
+    return change
+
+
+#format change value (YoY) based on data type
+def format_change(change, indicator_type):
+    if indicator_type == 'Unemployment':
+        #for unemployment, decrease is positive
+        return f"{change:+.1f} pp", change < 0
+    elif indicator_type in ['HDI', 'Democracy Index']:
+        #for HDI and Democracy Index, increase is positive
+        return f"{change:+.2f} points", change > 0
+    else:
+        #for population, show percentage
+        return f"{change:+.2f}%", change > 0
+
+
+#show sociodemographic data
+def show_sociodemographic(sparql, iso_code, country_name):
+    st.header("Sociodemographic Indicators")
+
+    #create columns for key metrics
+    col1, col2 = st.columns(2)
+    col3, col4 = st.columns(2)
+
+    #population Data
+    pop_df = get_indicator_data(sparql, iso_code, "hasDemographicMeasurement", "populationValue")
+    if not pop_df.empty:
+        latest_pop = pop_df.iloc[-1]
+        if len(pop_df) >= 2:
+            prev_pop = pop_df.iloc[-2]
+            pop_change = calculate_change(latest_pop['Value'], prev_pop['Value'])
+            pop_change_str, is_positive = format_change(pop_change, 'Population')
+        else:
+            pop_change_str = "No previous data"
+            is_positive = None
+
+        col1.metric(
+            f"Population ({int(latest_pop['Year'])})",
+            format_number(latest_pop['Value']),
+            pop_change_str,
+            delta_color="normal"
+        )
+
+    #HDI data
+    hdi_df = get_indicator_data(sparql, iso_code, "hasSocialMeasurement", "hdiValue")
+    if not hdi_df.empty:
+        latest_hdi = hdi_df.iloc[-1]
+        if len(hdi_df) >= 2:
+            prev_hdi = hdi_df.iloc[-2]
+            hdi_change = calculate_change(latest_hdi['Value'], prev_hdi['Value'])
+            hdi_change_str, is_positive = format_change(hdi_change, 'HDI')
+        else:
+            hdi_change_str = "No previous data"
+            is_positive = None
+
+        col2.metric(
+            f"Human Development Index ({int(latest_hdi['Year'])})",
+            f"{latest_hdi['Value']:.3f}",
+            hdi_change_str,
+            delta_color="normal" if is_positive is None else ("normal" if is_positive else "inverse")
+        )
+
+    #unemployment data
+    unemp_df = get_indicator_data(sparql, iso_code, "hasSocialMeasurement", "unemploymentValue")
+    if not unemp_df.empty:
+        latest_unemp = unemp_df.iloc[-1]
+        if len(unemp_df) >= 2:
+            prev_unemp = unemp_df.iloc[-2]
+            unemp_change = latest_unemp['Value'] - prev_unemp['Value']  # Use absolute change for unemployment
+            unemp_change_str, is_positive = format_change(unemp_change, 'Unemployment')
+        else:
+            unemp_change_str = "No previous data"
+            is_positive = None
+
+        col3.metric(
+            f"Unemployment Rate ({int(latest_unemp['Year'])})",
+            f"{latest_unemp['Value']:.1f}%",
+            unemp_change_str,
+            delta_color="normal" if is_positive is None else ("normal" if is_positive else "inverse")
+        )
+
+    #Democracy Index data
+    dem_df = get_indicator_data(sparql, iso_code, "hasSocialMeasurement", "democracyIndexValue")
+    if not dem_df.empty:
+        latest_dem = dem_df.iloc[-1]
+        if len(dem_df) >= 2:
+            prev_dem = dem_df.iloc[-2]
+            dem_change = calculate_change(latest_dem['Value'], prev_dem['Value'])
+            dem_change_str, is_positive = format_change(dem_change, 'Democracy Index')
+        else:
+            dem_change_str = "No previous data"
+            is_positive = None
+
+        col4.metric(
+            f"Democracy Index ({int(latest_dem['Year'])})",
+            f"{latest_dem['Value']:.2f}",
+            dem_change_str,
+            delta_color="normal" if is_positive is None else ("normal" if is_positive else "inverse")
+        )
+
+    #create sub-tabs for visualizations only if data exists
+    tabs = []
+    if not pop_df.empty:
+        tabs.append(("Population Trend", pop_df, "Population Count"))
+    if not hdi_df.empty:
+        tabs.append(("HDI Trend", hdi_df, "HDI Score"))
+    if not unemp_df.empty:
+        tabs.append(("Unemployment Trend", unemp_df, "Unemployment Rate (%)"))
+    if not dem_df.empty:
+        tabs.append(("Democracy Index Trend", dem_df, "Democracy Index Score"))
+
+    if tabs:
+        tab_list = st.tabs([tab[0] for tab in tabs])
+
+        for i, (title, df, y_label) in enumerate(tabs):
+            with tab_list[i]:
+                fig = px.line(
+                    df,
+                    x='Year',
+                    y='Value',
+                    title=f'{title} - {country_name}'
+                )
+                fig.update_layout(
+                    yaxis_title=y_label,
+                    xaxis_title="Year",
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning(f"No sociodemographic data available for {country_name}")
 
 
 def main():
