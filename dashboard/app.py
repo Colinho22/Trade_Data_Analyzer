@@ -137,12 +137,21 @@ def show_country_selector(sparql):
         selected_display = st.sidebar.selectbox(
             "Select Country",
             options=[opt[0] for opt in filtered_options],
-            key="country_selector"  # Add a key for proper rerendering
+            key="country_selector"  #add key for rendering
         )
 
         selected_info = next(opt for opt in filtered_options if opt[0] == selected_display)
         st.session_state.selected_iso = selected_info[1]
         st.session_state.selected_country = selected_info[2]
+
+        #about section
+        st.sidebar.divider()
+        st.sidebar.subheader("About")
+        st.sidebar.markdown(
+            "This dashboard allows you to explore trade data from ***2014-2023*** based on the UN Comtrade database. Additionally, some sociodemographic data is available to better interpret a country's development over time.")
+        st.sidebar.divider()
+        st.sidebar.markdown("by Colinho22  |  👾[GitHub](https://github.com/Colinho22/Trade_Data_Analyzer)")
+
         return selected_info[1], selected_info[2]
 
     return None, None
@@ -457,220 +466,242 @@ def display_trade_trends(sparql, iso_code, country_name, selected_year):
         st.plotly_chart(fig_balance, use_container_width=True)
 
 
-#show trade partners overview
-def get_trade_partners_data(sparql, iso_code, year=None):
-    year_filter = f"?measurement :year {year} ." if year else ""
+#trade partner data query
+def partners_get_data(sparql, iso_code, time_period="recent"):
+    current_year = 2023  #update based on your data availability
+
+    #define year filter based on time period
+    if time_period == "recent":
+        year_filter = f"FILTER(?year >= {current_year - 2})"
+    elif isinstance(time_period, int):
+        year_filter = f"FILTER(?year = {time_period})"
+    else:  # "all" time
+        year_filter = ""
 
     partners_query = f"""
     PREFIX : <http://example.org/country-data#>
     SELECT ?partnerName ?partnerIso ?year
-           (SUM(?exportGoods) as ?goodsExports)
-           (SUM(?importGoods) as ?goodsImports)
-           (SUM(?exportServices) as ?servicesExports)
-           (SUM(?importServices) as ?servicesImports)
+           (SUM(IF(?flowType = "Export", ?tradeValue, 0)) as ?exportValue)
+           (SUM(IF(?flowType = "Import", ?tradeValue, 0)) as ?importValue)
     WHERE {{
         ?country a :Country ;
                 :isoCode "{iso_code}" ;
                 :hasTradeMeasurement ?measurement .
         ?measurement :hasPartnerCountry ?partner ;
-                    :year ?year .
+                    :year ?year ;
+                    :tradeValue ?tradeValue ;
+                    :flowType ?flowType .
         ?partner :name ?partnerName ;
                 :isoCode ?partnerIso .
 
         {year_filter}
-
-        OPTIONAL {{
-            ?measurement :tradeType "C" ;  # Goods
-                        :flowType "Export" ;
-                        :tradeValue ?exportGoods .
-        }}
-        OPTIONAL {{
-            ?measurement :tradeType "C" ;  # Goods
-                        :flowType "Import" ;
-                        :tradeValue ?importGoods .
-        }}
-        OPTIONAL {{
-            ?measurement :tradeType "S" ;  # Services
-                        :flowType "Export" ;
-                        :tradeValue ?exportServices .
-        }}
-        OPTIONAL {{
-            ?measurement :tradeType "S" ;  # Services
-                        :flowType "Import" ;
-                        :tradeValue ?importServices .
-        }}
-
-        FILTER(?partnerIso != "W00")  # Exclude World
+        FILTER(?partnerIso != "W00")  # Exclude World aggregate
     }}
     GROUP BY ?partnerName ?partnerIso ?year
-    ORDER BY DESC(?goodsExports)
+    ORDER BY DESC(?year)
     """
 
     return execute_query(sparql, partners_query)
 
 
-#display trade partner analysis
-def show_trade_partners(sparql, iso_code, country_name):
+#process data into DataFrame
+def partners_process_data(raw_data):
+    if not raw_data:
+        return None
+
+    #create initial DataFrame
+    df = pd.DataFrame([{
+        'Partner': r['partnerName']['value'],
+        'Partner ISO': r['partnerIso']['value'],
+        'Year': int(float(r['year']['value'])),
+        'Total Exports': float(r.get('exportValue', {}).get('value', 0)),
+        'Total Imports': float(r.get('importValue', {}).get('value', 0))
+    } for r in raw_data])
+
+    #aggregate if multiple years exist
+    df = df.groupby(['Partner', 'Partner ISO']).agg({
+        'Total Exports': 'sum',
+        'Total Imports': 'sum'
+    }).reset_index()
+
+    #calculate additional metrics
+    df['Trade Balance'] = df['Total Exports'] - df['Total Imports']
+    df['Total Trade'] = df['Total Exports'] + df['Total Imports']
+    df['Export Share'] = (df['Total Exports'] / df['Total Exports'].sum()) * 100
+    df['Import Share'] = (df['Total Imports'] / df['Total Imports'].sum()) * 100
+
+    return df
+
+
+#display trade partners metrics
+def partners_display_metrics(df):
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("Total Trading Partners", len(df))
+
+        #add total trade volume
+        total_trade = df['Total Trade'].sum()
+        st.metric("Total Trade Volume", format_number(total_trade))
+
+    with col2:
+        st.write("Top Export Markets")
+        top_exporters = df.nlargest(3, 'Total Exports')
+        for _, row in top_exporters.iterrows():
+            st.write(f"{row['Partner']}: {format_number(row['Total Exports'])} ({row['Export Share']:.1f}%)")
+
+    with col3:
+        st.write("Top Import Sources")
+        top_importers = df.nlargest(3, 'Total Imports')
+        for _, row in top_importers.iterrows():
+            st.write(f"{row['Partner']}: {format_number(row['Total Imports'])} ({row['Import Share']:.1f}%)")
+
+
+#create treemap visualization
+def partners_create_treemap(df, trade_type="exports"):
+    if trade_type.lower() == "exports":
+        values = 'Total Exports'
+        title = 'Top Export Partners'
+    else:
+        values = 'Total Imports'
+        title = 'Top Import Partners'
+
+    #filter for top 15 partners
+    plot_df = df.nlargest(15, values)
+
+    fig = px.treemap(
+        plot_df,
+        path=['Partner'],
+        values=values,
+        title=title,
+        color='Trade Balance',
+        color_continuous_scale=['red', 'white', 'green'],
+        color_continuous_midpoint=0
+    )
+
+    fig.update_layout(height=500)
+    return fig
+
+
+#add regional concentration analysis
+def partners_create_regional_chart(df):
+    region_mapping = {
+        'Europe': ['ALB', 'AND', 'AUT', 'BLR', 'BEL', 'BIH', 'BGR', 'HRV', 'CZE', 'DNK',
+                   'EST', 'FIN', 'FRA', 'DEU', 'GRC', 'HUN', 'ISL', 'IRL', 'ITA', 'LVA',
+                   'LIE', 'LTU', 'LUX', 'MLT', 'MDA', 'MCO', 'MNE', 'NLD', 'MKD', 'NOR',
+                   'POL', 'PRT', 'ROU', 'RUS', 'SMR', 'SRB', 'SVK', 'SVN', 'ESP', 'SWE',
+                   'CHE', 'UKR', 'GBR', 'VAT'],
+
+        'Asia': ['BGD', 'BTN', 'BRN', 'KHM', 'CHN', 'HKG', 'IND', 'IDN', 'JPN',
+                 'LAO', 'MAC', 'MYS', 'MDV', 'MNG', 'MMR', 'NPL', 'PHL', 'SGP',
+                 'KOR', 'LKA', 'TWN', 'THA', 'VNM'],
+
+        'Middle East': ['ARM', 'AZE', 'BHR', 'CYP', 'GEO', 'IRN', 'IRQ', 'ISR',
+                        'JOR', 'KWT', 'LBN', 'OMN', 'PAK', 'PSE', 'QAT', 'SAU',
+                        'SYR', 'TUR', 'ARE', 'YEM', 'KAZ', 'KGZ', 'TJK', 'TKM',
+                        'UZB'],
+
+        'North America': ['CAN', 'MEX', 'USA'],
+
+        'Central America & Caribbean': ['AIA', 'ATG', 'ABW', 'BHS', 'BRB', 'BLZ', 'BMU',
+                                        'VGB', 'CYM', 'CRI', 'CUB', 'CUW', 'DMA', 'DOM',
+                                        'SLV', 'GRD', 'GLP', 'GTM', 'HTI', 'HND', 'JAM',
+                                        'MTQ', 'MSR', 'NIC', 'PAN', 'PRI', 'BES', 'KNA',
+                                        'LCA', 'MAF', 'VCT', 'SXM', 'TTO', 'TCA', 'VIR'],
+
+        'South America': ['ARG', 'BOL', 'BRA', 'CHL', 'COL', 'ECU', 'FLK', 'GUF', 'GUY',
+                          'PRY', 'PER', 'SUR', 'URY', 'VEN'],
+
+        'Africa': ['DZA', 'AGO', 'BEN', 'BWA', 'BFA', 'BDI', 'CPV', 'CMR', 'CAF', 'TCD',
+                   'COM', 'COG', 'CIV', 'COD', 'DJI', 'EGY', 'GNQ', 'ERI', 'SWZ', 'ETH',
+                   'GAB', 'GMB', 'GHA', 'GIN', 'GNB', 'KEN', 'LSO', 'LBR', 'LBY', 'MDG',
+                   'MWI', 'MLI', 'MRT', 'MUS', 'MYT', 'MAR', 'MOZ', 'NAM', 'NER', 'NGA',
+                   'REU', 'RWA', 'STP', 'SEN', 'SYC', 'SLE', 'SOM', 'ZAF', 'SSD', 'SDN',
+                   'TZA', 'TGO', 'TUN', 'UGA', 'ESH', 'ZMB', 'ZWE'],
+
+        'Oceania': ['AUS', 'COK', 'FJI', 'PYF', 'KIR', 'MHL', 'FSM', 'NRU', 'NCL', 'NZL',
+                    'NIU', 'NFK', 'MNP', 'PLW', 'PNG', 'PCN', 'WSM', 'SLB', 'TKL', 'TON',
+                    'TUV', 'UMI', 'VUT', 'WLF'],
+
+        'Other': []  #default for unmapped countries
+    }
+
+    #add region column to DataFrame
+    df['Region'] = df['Partner ISO'].map(lambda x: next(
+        (region for region, countries in region_mapping.items() if x in countries), 'Other'))
+
+    #create regional aggregation
+    region_df = df.groupby('Region').agg({
+        'Total Exports': 'sum',
+        'Total Imports': 'sum'
+    }).reset_index()
+
+    fig = px.bar(
+        region_df,
+        x='Region',
+        y=['Total Exports', 'Total Imports'],
+        title='Trade by Region',
+        barmode='group'
+    )
+
+    return fig
+
+
+#main function to display trade partner tab
+def partners_display_tab(sparql, iso_code, country_name):
     st.header("Trade Partners Analysis")
 
-    #debug information
-    st.write(f"Currently analyzing: {country_name} (ISO: {iso_code})")
+    #time period selector
+    time_options = ["All Time", "Recent (Last 3 Years)", "Single Year"]
+    selected_time = st.radio("Select Time Period", time_options, horizontal=True)
 
-    #get available years
-    year_query = f"""
-    PREFIX : <http://example.org/country-data#>
-    SELECT DISTINCT ?year
-    WHERE {{
-        ?country a :Country ;
-                :isoCode "{iso_code}" ;
-                :hasTradeMeasurement ?measurement .
-        ?measurement :year ?year .
-    }}
-    ORDER BY DESC(?year)
-    """
+    #get available years and most recent year
+    available_years, most_recent_year = get_available_years(sparql, iso_code)
 
-    years = execute_query(sparql, year_query)
-    if not years:
+    if not available_years:
         st.warning(f"No trade data available for {country_name}")
         return
 
-    #create year options including "All Years"
-    year_options = ["All Years"] + sorted([int(float(year['year']['value']))
-                                           for year in years], reverse=True)
-    selected_year = st.selectbox("Select Year",
-                                 year_options,
-                                 key=f"year_select_{iso_code}")  # Unique key per country
+    #convert selection to query parameter
+    if selected_time == "Single Year":
+        selected_year = st.selectbox(
+            "Select Year",
+            available_years,  #from def get_available_years
+            key=f"year_select_partners_{iso_code}"  #unique key per country
+        )
+        time_period = selected_year
+    else:
+        time_period = "all" if selected_time == "All Time" else "recent"
 
-    #get trade partner data with explicit country filter
-    partners_query = f"""
-    PREFIX : <http://example.org/country-data#>
-    SELECT ?partnerName ?partnerIso ?year
-           (SUM(?exportGoods) as ?goodsExports)
-           (SUM(?importGoods) as ?goodsImports)
-           (SUM(?exportServices) as ?servicesExports)
-           (SUM(?importServices) as ?servicesImports)
-    WHERE {{
-        ?country a :Country ;
-                :isoCode "{iso_code}" ;
-                :hasTradeMeasurement ?measurement .
-        ?measurement :hasPartnerCountry ?partner ;
-                    :year ?year .
-        ?partner :name ?partnerName ;
-                :isoCode ?partnerIso .
+    #get and process data
+    raw_data = partners_get_data(sparql, iso_code, time_period)
 
-        {f"FILTER(?year = {selected_year})" if selected_year != "All Years" else ""}
-
-        OPTIONAL {{
-            ?measurement :tradeType "C" ;
-                        :flowType "Export" ;
-                        :tradeValue ?exportGoods .
-        }}
-        OPTIONAL {{
-            ?measurement :tradeType "C" ;
-                        :flowType "Import" ;
-                        :tradeValue ?importGoods .
-        }}
-        OPTIONAL {{
-            ?measurement :tradeType "S" ;
-                        :flowType "Export" ;
-                        :tradeValue ?exportServices .
-        }}
-        OPTIONAL {{
-            ?measurement :tradeType "S" ;
-                        :flowType "Import" ;
-                        :tradeValue ?importServices .
-        }}
-
-        FILTER(?partnerIso != "W00")
-    }}
-    GROUP BY ?partnerName ?partnerIso ?year
-    """
-
-    trade_data = execute_query(sparql, partners_query)
-
-    #debug the query results
-    if not trade_data:
-        st.warning(f"No trade partner data found for {country_name}")
-        st.write("Debug: Query returned no results")
+    if not raw_data:
+        st.warning(f"No trade partner data available for {country_name}")
         return
 
-    #convert to DataFrame with error handling
-    try:
-        df = pd.DataFrame([
-            {
-                'Partner': r['partnerName']['value'],
-                'Year': int(float(r['year']['value'])),
-                'Goods Exports': float(r['goodsExports']['value']) if r.get('goodsExports') else 0,
-                'Goods Imports': float(r['goodsImports']['value']) if r.get('goodsImports') else 0,
-                'Services Exports': float(r['servicesExports']['value']) if r.get('servicesExports') else 0,
-                'Services Imports': float(r['servicesImports']['value']) if r.get('servicesImports') else 0
-            } for r in trade_data
-        ])
+    #process data
+    df = partners_process_data(raw_data)
 
-        #calculate totals
-        df['Total Exports'] = df['Goods Exports'] + df['Services Exports']
-        df['Total Imports'] = df['Goods Imports'] + df['Services Imports']
+    if df is None or len(df) == 0:
+        st.warning(f"No trade data available for {country_name}")
+        return
 
-        #create visualization tabs
-        viz_tab1, viz_tab2 = st.tabs(["Export Analysis", "Import Analysis"])
+    #display metrics
+    partners_display_metrics(df)
 
-        with viz_tab1:
-            st.subheader("Top Export Partners")
-            if selected_year == "All Years":
-                export_df = df.groupby('Partner').agg({
-                    'Goods Exports': 'sum',
-                    'Services Exports': 'sum'
-                }).reset_index()
-            else:
-                export_df = df[['Partner', 'Goods Exports', 'Services Exports']]
+    #create visualization tabs
+    viz_tab1, viz_tab2 = st.tabs(["Trade Partners Overview", "Regional Analysis"])
 
-            export_df['Total Exports'] = export_df['Goods Exports'] + export_df['Services Exports']
-            export_df = export_df.nlargest(15, 'Total Exports')
+    with viz_tab1:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.plotly_chart(partners_create_treemap(df, "exports"), use_container_width=True)
+        with col2:
+            st.plotly_chart(partners_create_treemap(df, "imports"), use_container_width=True)
 
-            fig_exports = px.bar(export_df,
-                                 x='Partner',
-                                 y=['Goods Exports', 'Services Exports'],
-                                 title=f'Top 15 Export Partners - {country_name} ({selected_year})',
-                                 labels={'value': 'Export Value (USD)',
-                                         'variable': 'Export Type'},
-                                 barmode='stack')
-            st.plotly_chart(fig_exports, use_container_width=True)
-
-        with viz_tab2:
-            st.subheader("Top Import Partners")
-            if selected_year == "All Years":
-                import_df = df.groupby('Partner').agg({
-                    'Goods Imports': 'sum',
-                    'Services Imports': 'sum'
-                }).reset_index()
-            else:
-                import_df = df[['Partner', 'Goods Imports', 'Services Imports']]
-
-            import_df['Total Imports'] = import_df['Goods Imports'] + import_df['Services Imports']
-            import_df = import_df.nlargest(15, 'Total Imports')
-
-            fig_imports = px.bar(import_df,
-                                 x='Partner',
-                                 y=['Goods Imports', 'Services Imports'],
-                                 title=f'Top 15 Import Partners - {country_name} ({selected_year})',
-                                 labels={'value': 'Import Value (USD)',
-                                         'variable': 'Import Type'},
-                                 barmode='stack')
-            st.plotly_chart(fig_imports, use_container_width=True)
-
-        #display detailed data table
-        st.subheader("Detailed Trade Partner Data")
-        if len(df) > 0:
-            summary_df = df.copy()
-            for col in summary_df.select_dtypes(include=['float64']).columns:
-                summary_df[col] = summary_df[col].apply(format_number)
-            st.dataframe(summary_df, use_container_width=True)
-        else:
-            st.info("No detailed data available for the selected filters")
-
-    except Exception as e:
-        st.error(f"Error processing trade data: {str(e)}")
-        st.write("Debug: Error in data processing", e)
+    with viz_tab2:
+        st.plotly_chart(partners_create_regional_chart(df), use_container_width=True)
 
 
 #key data for sociodemographic
@@ -838,10 +869,6 @@ def show_sociodemographic(sparql, iso_code, country_name):
 
 
 def main():
-    st.title("🌍 Trade Data Analysis")
-    st.write(
-        "This dashboard allows you to explore trade data from 2014-2023 based on the UN Comtrade database. Additionally, some sociodemographic data is available to better interpret a country's development over time.")
-
     #initialize session state for country selection
     if 'selected_iso' not in st.session_state:
         st.session_state.selected_iso = None
@@ -855,7 +882,10 @@ def main():
     selected_iso, selected_country = show_country_selector(sparql)
 
     if selected_iso and selected_country:
-        #main content area with tabs
+        #create dynamic header with selected country
+        st.header(f"🌍 Trade Data Analysis for {selected_country}")
+
+        #main content area
         tab1, tab2, tab3 = st.tabs(["Trade Overview", "Trade Partners", "Sociodemographics"])
 
         with tab1:
@@ -866,11 +896,10 @@ def main():
                                     st.session_state.selected_country)
 
         with tab2:
-            show_trade_partners(sparql, selected_iso, selected_country)
+            partners_display_tab(sparql, selected_iso, selected_country)
 
         with tab3:
             show_sociodemographic(sparql, selected_iso, selected_country)
-
 
 if __name__ == "__main__":
     main()
