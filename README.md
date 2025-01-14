@@ -1,6 +1,8 @@
 # Trade Data Analyzer
 This project allows for the analysis of trade data as reported by the United Nations and available through [UN Comtrade](https://comtradeplus.un.org/). Additional data was added using the [SPARQL endpoint of Wikidata](https://query.wikidata.org/). After aggregation of the data, you can then explore using a locally hosted Streamlit dashboard.
-<br/>
+
+![dashboard](https://github.com/user-attachments/assets/7cc74118-083a-4c64-a8fa-8ce33262051f)
+
 <br/>
 
 > [!Note]
