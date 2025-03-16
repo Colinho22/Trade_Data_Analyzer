@@ -131,17 +131,103 @@ def add_measurement_data(g, base, data, measurement_type, value_property):
 
 #add organization membership data
 def add_membership_data(g, base, membership_data):
+    # Track processed organizations to avoid duplicates
+    processed_orgs = set()
+
+    # Map of Wikidata QIDs to our ontology types
+    org_type_mapping = {
+        "international organization": "InternationalOrganization",
+        "intergovernmental organization": "InternationalOrganization",
+        "economic union": "EconomicOrganization",
+        "supranational organization": "PoliticalUnion",
+        "economic community": "EconomicOrganization",
+        "economic organization": "EconomicOrganization",
+        "military alliance": "MilitaryAlliance",
+        "trade bloc": "TradeBloc",
+        "united nations specialized agency": "UnitedNationsSpecializedAgency",
+        "regional economic community": "EconomicOrganization",
+        "customs union": "TradeBloc"
+    }
+
     for item in membership_data:
         country_uri = URIRef(f"{base}{item['isoCode']['value']}")
-        org_uri = URIRef(f"{base}org_{item['org']['value'].split('/')[-1]}")
+        org_id = item['org']['value'].split('/')[-1]
+        org_uri = URIRef(f"{base}org_{org_id}")
 
-        # add organization
+        # Skip if already processed this organization
+        if org_id in processed_orgs:
+            # Just add the membership relation if not already added
+            g.add((country_uri, base.isMemberOf, org_uri))
+            continue
+
+        # Add organization
         g.add((org_uri, RDF.type, OWL.NamedIndividual))
         g.add((org_uri, RDF.type, base.Organization))
         g.add((org_uri, base.name, Literal(item['orgLabel']['value'])))
+        g.add((org_uri, base.orgId, Literal(org_id)))
 
-        # add membership relation
+        # Add organization description if available
+        if 'orgDescription' in item and 'value' in item['orgDescription']:
+            g.add((org_uri, base.orgDescription, Literal(item['orgDescription']['value'])))
+
+        # Add organization type if available
+        if 'orgTypeLabel' in item and 'value' in item['orgTypeLabel']:
+            org_type_label = item['orgTypeLabel']['value'].lower()
+
+            # Map to our ontology's organization types
+            ontology_type = org_type_mapping.get(org_type_label, "InternationalOrganization")
+            org_type_uri = URIRef(f"{base}OrgType_{ontology_type}")
+
+            # Link organization to its type
+            g.add((org_uri, base.hasOrgType, org_type_uri))
+
+        # Add membership relation
         g.add((country_uri, base.isMemberOf, org_uri))
+
+        # Mark as processed
+        processed_orgs.add(org_id)
+
+
+#add additional organization details
+def add_organization_details(g, base, endpoint, queries):
+    print("Fetching detailed organization data...")
+    org_details = execute_query(endpoint, queries.get_organization_details_query())
+
+    for item in org_details:
+        try:
+            # Extract org ID from URI
+            org_id = item['org']['value'].split('/')[-1]
+            org_uri = URIRef(f"{base}org_{org_id}")
+
+            # Skip if the organization doesn't exist in our graph
+            if (org_uri, RDF.type, base.Organization) not in g:
+                continue
+
+            # Add website if available
+            if 'website' in item:
+                g.add((org_uri, base.website, Literal(item['website']['value'])))
+
+            # Add inception date if available
+            if 'inception' in item:
+                date_value = item['inception']['value']
+                # Convert to just the date part if it's a datetime
+                if 'T' in date_value:
+                    date_value = date_value.split('T')[0]
+                g.add((org_uri, base.inception, Literal(date_value, datatype=XSD.date)))
+
+            # Add headquarters if available
+            if 'headquarters_label' in item:
+                g.add((org_uri, base.headquarters, Literal(item['headquarters_label']['value'])))
+
+            # Add member count if available
+            if 'memberCount' in item:
+                g.add((org_uri, base.memberCount, Literal(int(item['memberCount']['value']), datatype=XSD.integer)))
+
+        except Exception as e:
+            print(f"Error adding details for organization {org_id}: {e}")
+            continue
+
+    print(f"Added details for organizations")
 
 
 #check for world aggregate W00
@@ -355,9 +441,12 @@ def main():
         add_measurement_data(g, base, unemployment_data, "SocialMeasurement", "unemploymentValue")
         time.sleep(5)
 
-        print("Fetching Organization membership data...")
-        membership_data = execute_query(endpoint, queries.get_membership_query())
+        print("Fetching enhanced organization membership data...")
+        membership_data = execute_query(endpoint, queries.get_enhanced_membership_query())
         add_membership_data(g, base, membership_data)
+        time.sleep(5)
+
+        add_organization_details(g, base, endpoint, queries)
 
         #add UN Comtrade data processing
         print("\nProcessing UN Comtrade data...")

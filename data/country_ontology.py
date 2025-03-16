@@ -39,6 +39,11 @@
     rdfs:label "Organization"@en ;
     rdfs:comment "An international organization"@en .
 
+:OrganizationType rdf:type owl:Class ;
+    rdfs:subClassOf :Entity ;
+    rdfs:label "Organization Type"@en ;
+    rdfs:comment "Classification of international organizations"@en .
+
 :WorldAggregate rdf:type owl:Class ;
     rdfs:subClassOf :Entity ;
     rdfs:label "World Aggregate"@en ;
@@ -131,6 +136,12 @@
     rdfs:range :Organization ;
     rdfs:label "is member of"@en .
 
+:hasOrgType rdf:type owl:ObjectProperty ;
+    rdfs:domain :Organization ;
+    rdfs:range :OrganizationType ;
+    rdfs:label "has organization type"@en ;
+    rdfs:comment "Links organization to its classification type"@en .
+
 :hasNeighbor rdf:type owl:ObjectProperty ;
     rdfs:domain :Country ;
     rdfs:range :Country ;
@@ -185,6 +196,48 @@
     rdfs:range xsd:decimal ;
     rdfs:label "Trade Value"@en ;
     rdfs:comment "Value of trade in US Dollars"@en .
+
+:orgId rdf:type owl:DatatypeProperty ;
+    rdfs:domain :Organization ;
+    rdfs:range xsd:string ;
+    rdfs:label "Organization ID"@en ;
+    rdfs:comment "Unique identifier for the organization (e.g. Wikidata QID)"@en .
+
+:orgDescription rdf:type owl:DatatypeProperty ;
+    rdfs:domain :Organization ;
+    rdfs:range xsd:string ;
+    rdfs:label "Organization Description"@en ;
+    rdfs:comment "Brief description of the organization"@en .
+
+:orgTypeLabel rdf:type owl:DatatypeProperty ;
+    rdfs:domain :OrganizationType ;
+    rdfs:range xsd:string ;
+    rdfs:label "Organization Type Label"@en ;
+    rdfs:comment "Human-readable label for the organization type"@en .
+
+:website rdf:type owl:DatatypeProperty ;
+    rdfs:domain :Organization ;
+    rdfs:range xsd:anyURI ;
+    rdfs:label "Website"@en ;
+    rdfs:comment "Official website of the organization"@en .
+
+:inception rdf:type owl:DatatypeProperty ;
+    rdfs:domain :Organization ;
+    rdfs:range xsd:date ;
+    rdfs:label "Date of inception"@en ;
+    rdfs:comment "When the organization was founded"@en .
+
+:headquarters rdf:type owl:DatatypeProperty ;
+    rdfs:domain :Organization ;
+    rdfs:range xsd:string ;
+    rdfs:label "Headquarters"@en ;
+    rdfs:comment "Location of the organization's headquarters"@en .
+
+:memberCount rdf:type owl:DatatypeProperty ;
+    rdfs:domain :Organization ;
+    rdfs:range xsd:integer ;
+    rdfs:label "Member count"@en ;
+    rdfs:comment "Number of member countries in the organization"@en .
 
 #trade aggregate properties
 :totalExportValue rdf:type owl:DatatypeProperty ;
@@ -301,3 +354,29 @@
     :name "World"@en ;
     :unCode "0" ;
     :isoCode "W00" .
+
+
+#common organization types as individuals
+:OrgType_TradeBloc rdf:type owl:NamedIndividual ;
+    rdf:type :OrganizationType ;
+    :orgTypeLabel "Trade Bloc"@en .
+
+:OrgType_MilitaryAlliance rdf:type owl:NamedIndividual ;
+    rdf:type :OrganizationType ;
+    :orgTypeLabel "Military Alliance"@en .
+
+:OrgType_PoliticalUnion rdf:type owl:NamedIndividual ;
+    rdf:type :OrganizationType ;
+    :orgTypeLabel "Political Union"@en .
+
+:OrgType_EconomicOrganization rdf:type owl:NamedIndividual ;
+    rdf:type :OrganizationType ;
+    :orgTypeLabel "Economic Organization"@en .
+
+:OrgType_UnitedNationsSpecializedAgency rdf:type owl:NamedIndividual ;
+    rdf:type :OrganizationType ;
+    :orgTypeLabel "UN Specialized Agency"@en .
+
+:OrgType_InternationalOrganization rdf:type owl:NamedIndividual ;
+    rdf:type :OrganizationType ;
+    :orgTypeLabel "International Organization"@en .
